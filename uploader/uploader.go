@@ -61,7 +61,7 @@ func (u *uploader) Serve() {
 	for {
 		select {
 		case file := <-fileChan:
-			u.conf.GetLogger().Info("upload: " + file.FileName)
+			u.conf.GetLogger().Infof("upload(%d): %s\n", file.MediaType, file.FileName)
 			// 上传文件
 			putPolicy := storage.PutPolicy{
 				Scope: u.conf.GetQiniuBucketName(),
@@ -70,7 +70,20 @@ func (u *uploader) Serve() {
 			ret := storage.PutRet{}
 			putExtra := storage.PutExtra{}
 			dataLen := int64(len(file.BinaryContent))
-			err := u.conf.GetQiniuFormUploader().Put(context.Background(), &ret, upToken, file.FileName, bytes.NewReader(file.BinaryContent), dataLen, &putExtra)
+			key := file.FileName
+			switch file.MediaType {
+			case wwdk.MediaTypeUserHeadImg:
+				key = "user/" + key
+			case wwdk.MediaTypeContactHeadImg:
+				key = "contact/" + key
+			case wwdk.MediaTypeMessageImage:
+				key = "message_image/" + key
+			case wwdk.MediaTypeMessageVoice:
+				key = "message_voice/" + key
+			case wwdk.MediaTypeMessageVideo:
+				key = "message_video/" + key
+			}
+			err := u.conf.GetQiniuFormUploader().Put(context.Background(), &ret, upToken, key, bytes.NewReader(file.BinaryContent), dataLen, &putExtra)
 			if err != nil && err.Error() != "file exists" {
 				u.conf.GetLogger().Errorf("QiniuFormUploader.Put error: %+v", err)
 				break
@@ -80,7 +93,7 @@ func (u *uploader) Serve() {
 				`{"token":"%s","filename":"%s","fileurl":"%s"}`,
 				token,
 				file.FileName,
-				"http://"+u.conf.GetQiniuBucketDomain()+"/"+file.FileName,
+				"http://"+u.conf.GetQiniuBucketDomain()+"/"+key,
 			)))
 			if resp.Ret != common.RetCodeOK {
 				u.conf.GetLogger().Error("通知服务器上传完毕失败: %s\n", resp.Msg)
