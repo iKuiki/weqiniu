@@ -5,7 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/ikuiki/wwdk"
 	"time"
+	"wegate/wechat"
 	"weqiniu/conf"
 
 	"github.com/qiniu/api.v7/storage"
@@ -14,8 +16,6 @@ import (
 
 	"wegate/common"
 	commontest "wegate/common/test"
-
-	"github.com/ikuiki/wwdk"
 )
 
 // Uploader 上传者服务模块
@@ -38,9 +38,9 @@ type uploader struct {
 // Serve 运行
 func (u *uploader) Serve() {
 	w := u.prepareConnect()
-	fileChan := make(chan wwdk.MediaFile)
+	fileChan := make(chan wechat.MediaFile)
 	w.On("upload", func(client MQTT.Client, msg MQTT.Message) {
-		var file wwdk.MediaFile
+		var file wechat.MediaFile
 		err := json.Unmarshal(msg.Payload(), &file)
 		if err != nil {
 			u.conf.GetLogger().Error("msg Unmarshal fail")
@@ -61,7 +61,8 @@ func (u *uploader) Serve() {
 	for {
 		select {
 		case file := <-fileChan:
-			u.conf.GetLogger().Infof("upload(%d): %s\n", file.MediaType, file.FileName)
+			u.conf.GetLogger().Infof("upload(%d)[%s]: %s\n", file.MediaType, file.QueueID, file.FileName)
+			startAt := time.Now()
 			// 上传文件
 			putPolicy := storage.PutPolicy{
 				Scope: u.conf.GetQiniuBucketName(),
@@ -76,6 +77,8 @@ func (u *uploader) Serve() {
 				key = "user/" + key
 			case wwdk.MediaTypeContactHeadImg:
 				key = "contact/" + key
+			case wwdk.MediaTypeMemberHeadImg:
+				key = "member/" + key
 			case wwdk.MediaTypeMessageImage:
 				key = "message_image/" + key
 			case wwdk.MediaTypeMessageVoice:
@@ -88,15 +91,16 @@ func (u *uploader) Serve() {
 				u.conf.GetLogger().Errorf("QiniuFormUploader.Put error: %+v", err)
 				break
 			}
+			u.conf.GetLogger().Infof("%s上传完成，花费%v\n", key, time.Since(startAt))
 			// 上传完成的回调
 			resp, _ := w.Request("Wechat/HD_Upload_MQTTUploadFinish", []byte(fmt.Sprintf(
-				`{"token":"%s","filename":"%s","fileurl":"%s"}`,
+				`{"token":"%s","queueID":"%s","fileurl":"%s"}`,
 				token,
-				file.FileName,
+				file.QueueID,
 				"http://"+u.conf.GetQiniuBucketDomain()+"/"+key,
 			)))
 			if resp.Ret != common.RetCodeOK {
-				u.conf.GetLogger().Error("通知服务器上传完毕失败: %s\n", resp.Msg)
+				u.conf.GetLogger().Errorf("通知服务器上传完毕失败: %s\n", resp.Msg)
 			}
 		}
 	}
