@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/ikuiki/wwdk"
+	"golang.org/x/crypto/bcrypt"
 	"time"
 	"wegate/wechat"
 	"weqiniu/conf"
@@ -121,7 +122,11 @@ func (u *uploader) prepareConnect() (w commontest.Work) {
 		panic(err)
 	}
 	pass := u.conf.GetWegatePassword() + time.Now().Format(time.RFC822)
-	resp, _ := w.Request("Login/HD_Login", []byte(`{"username":"uploader","password":"`+pass+`"}`))
+	hashedPass, err := bcrypt.GenerateFromPassword([]byte(pass), bcrypt.DefaultCost)
+	if err != nil {
+		panic(err)
+	}
+	resp, _ := w.Request("Login/HD_Login", []byte(`{"username":"uploader","password":"`+string(hashedPass)+`"}`))
 	if resp.Ret != common.RetCodeOK {
 		u.conf.GetLogger().Fatalf("登录失败: %s", resp.Msg)
 	}
