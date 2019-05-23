@@ -117,6 +117,7 @@ func (u *uploader) prepareConnect() (w commontest.Work) {
 	opts.SetOnConnectHandler(func(client MQTT.Client) {
 		u.conf.GetLogger().Info("OnConnectHandler")
 	})
+	opts.SetAutoReconnect(true)
 	err := w.Connect(opts)
 	if err != nil {
 		panic(err)
