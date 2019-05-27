@@ -33,7 +33,8 @@ func NewUploader(conf conf.Conf) Uploader {
 }
 
 type uploader struct {
-	conf conf.Conf
+	conf          conf.Conf
+	uploaderToken string
 }
 
 // Serve 运行
@@ -49,16 +50,6 @@ func (u *uploader) Serve() {
 		}
 		fileChan <- file
 	})
-	resp, _ := w.Request("Wechat/HD_Upload_RegisterMQTTUploader", []byte(fmt.Sprintf(
-		`{"name":"%s","description":"%s","uploadListenerTopic":"%s"}`,
-		"qiniuUploader",
-		"七牛上传模块",
-		"upload",
-	)))
-	if resp.Ret != common.RetCodeOK {
-		u.conf.GetLogger().Fatalf("注册uploader失败: %s", resp.Msg)
-	}
-	token := resp.Msg
 	for {
 		select {
 		case file := <-fileChan:
@@ -96,7 +87,7 @@ func (u *uploader) Serve() {
 			// 上传完成的回调
 			resp, _ := w.Request("Wechat/HD_Upload_MQTTUploadFinish", []byte(fmt.Sprintf(
 				`{"token":"%s","queueID":"%s","fileurl":"%s"}`,
-				token,
+				u.uploaderToken,
 				file.QueueID,
 				"http://"+u.conf.GetQiniuBucketDomain()+"/"+key,
 			)))
@@ -109,26 +100,39 @@ func (u *uploader) Serve() {
 
 // 准备连接
 func (u *uploader) prepareConnect() (w commontest.Work) {
-	w = commontest.Work{}
 	opts := w.GetDefaultOptions(u.conf.GetWegateURL())
 	opts.SetConnectionLostHandler(func(client MQTT.Client, err error) {
-		u.conf.GetLogger().Info("ConnectionLost", err.Error())
+		u.conf.GetLogger().Info("ConnectionLost: ", err.Error())
 	})
 	opts.SetOnConnectHandler(func(client MQTT.Client) {
-		u.conf.GetLogger().Info("OnConnectHandler")
+		u.conf.GetLogger().Info("已连接到服务器，开始登陆并注册方法")
+		// 登陆
+		pass := u.conf.GetWegatePassword() + time.Now().Format(time.RFC822)
+		hashedPass, err := bcrypt.GenerateFromPassword([]byte(pass), bcrypt.DefaultCost)
+		if err != nil {
+			panic(err)
+		}
+		resp, _ := w.Request("Login/HD_Login", []byte(`{"username":"uploader","password":"`+string(hashedPass)+`"}`))
+		if resp.Ret != common.RetCodeOK {
+			u.conf.GetLogger().Fatalf("登录失败: %s", resp.Msg)
+		}
+		// 注册
+		resp, _ = w.Request("Wechat/HD_Upload_RegisterMQTTUploader", []byte(fmt.Sprintf(
+			`{"name":"%s","description":"%s","uploadListenerTopic":"%s"}`,
+			"qiniuUploader",
+			"七牛上传模块",
+			"upload",
+		)))
+		if resp.Ret != common.RetCodeOK {
+			u.conf.GetLogger().Fatalf("注册uploader失败: %s", resp.Msg)
+		}
+		u.uploaderToken = resp.Msg
+		u.conf.GetLogger().Info("注册完成，获取到token：" + u.uploaderToken)
 	})
+	opts.SetAutoReconnect(true)
 	err := w.Connect(opts)
 	if err != nil {
 		panic(err)
-	}
-	pass := u.conf.GetWegatePassword() + time.Now().Format(time.RFC822)
-	hashedPass, err := bcrypt.GenerateFromPassword([]byte(pass), bcrypt.DefaultCost)
-	if err != nil {
-		panic(err)
-	}
-	resp, _ := w.Request("Login/HD_Login", []byte(`{"username":"uploader","password":"`+string(hashedPass)+`"}`))
-	if resp.Ret != common.RetCodeOK {
-		u.conf.GetLogger().Fatalf("登录失败: %s", resp.Msg)
 	}
 	return
 }
