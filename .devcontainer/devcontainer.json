@@ -1,14 +1,21 @@
 {
-	"name": "WeCraftManager",
+	"name": "WeQiniu",
 	"dockerFile": "Dockerfile",
 	"extensions": [
 		"ms-vscode.go",
-		"yzhang.markdown-all-in-one"
+		"yzhang.markdown-all-in-one",
+		"davidanson.vscode-markdownlint",
+		"wmaurer.change-case",
+		"asuka.insertnumbers"
 	],
 	"runArgs": [
 		"--cap-add=SYS_PTRACE",
 		"--security-opt",
 		"seccomp=unconfined"
 	],
-	"postCreateCommand": "go mod download"
+	"settings": {
+		"go.gopath": "/go",
+		"go.inferGopath": true,
+		"go.useLanguageServer": true
+	}
 }
